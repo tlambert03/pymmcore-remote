@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import os
 import threading
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import Pyro5.api
 import Pyro5.errors
+from psygnal._signal import SignalInstance
 from pymmcore_plus.core.events import CMMCoreSignaler
 from pymmcore_plus.mda.events import MDASignaler
 
@@ -67,7 +69,7 @@ class MMCorePlusProxy(Pyro5.api.Proxy):
 
         # create a proxy object to receive and connect CMMCoreSignaler events
         # here on the client side
-        events = ClientSideCMMCoreSignaler()
+        events = ClientSideCMMCoreSignaler(self)
         object.__setattr__(self, "events", events)
         # create daemon thread to listen for callbacks/signals coming from the server
         # and register the callback handler
@@ -98,20 +100,52 @@ class MMCorePlusProxy(Pyro5.api.Proxy):
 @Pyro5.api.expose  # type: ignore [misc]
 def receive_server_callback(self: Any, signal_name: str, args: tuple) -> None:
     """Will be called by server with name of signal, and tuple of args."""
+    print(
+        "Received callback from server:",
+        signal_name,
+        args,
+        threading.current_thread(),
+        "pid",
+        os.getpid(),
+    )
     signal = cast("SignalInstance", getattr(self, signal_name))
+    print("  Emitting signal:", signal)
     signal.emit(*args)
+    print("  Signal emitted")
+
+
+def _patched_getattr(self: Any, __name: str) -> Any:
+    attr = object.__getattribute__(self, __name)
+    if hasattr(attr, "connect"):
+        func = attr.connect
+
+        def _patched(*args: Any, **kwargs: Any) -> Any:
+            kwargs["thread"] = "main"
+            return func(*args, **kwargs)
+
+        attr.connect = _patched
+    return attr
 
 
 class ClientSideCMMCoreSignaler(CMMCoreSignaler):
     """Client-side signaler for CMMCore events."""
 
+    def __init__(self, proxy: Any = None) -> None:
+        self._proxy = proxy
+        super().__init__()
+
     receive_server_callback = receive_server_callback
+
+    # TOTAL HACK
+    __getattribute__ = _patched_getattr
 
 
 class ClientSideMDASignaler(MDASignaler):
     """Client-side signaler for MDA events."""
 
     receive_server_callback = receive_server_callback
+    # TOTAL HACK
+    __getattribute__ = _patched_getattr
 
 
 class _DaemonThread(threading.Thread):

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import contextlib
+import os
 import subprocess
 import sys
+import threading
 import time
 from functools import partial
 from typing import TYPE_CHECKING, Any, Callable, Protocol, cast
@@ -70,6 +72,12 @@ class _CallbackMixin:
         for handler in list(self._callback_handlers):
             try:
                 handler._pyroClaimOwnership()  # type: ignore
+                print(
+                    "Emitting server signal",
+                    threading.current_thread(),
+                    "pid",
+                    os.getpid(),
+                )
                 handler.receive_server_callback(signal_name, args)
             except Pyro5.errors.CommunicationError:  # pragma: no cover
                 self._callback_handlers.discard(handler)

@@ -143,3 +143,17 @@ def test_core_api_native(proxy: CMMCorePlus) -> None:
     assert isinstance(
         proxy.getConfigData("Channel", "FITC", native=True), pymmcore.Configuration
     )
+
+
+def test_cb_with_core_method(proxy: CMMCorePlus) -> None:
+    mock = Mock()
+    from psygnal import emit_queued
+
+    @proxy.events.imageSnapped.connect
+    def callback() -> None:
+        d = proxy.getLoadedDevices()
+        mock(d)
+
+    proxy.snapImage()
+    emit_queued()
+    mock.assert_called_once_with(proxy.getLoadedDevices())
